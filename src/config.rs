@@ -23,7 +23,7 @@ impl Config {
                 }
             }
 
-            if opt.one_indexed {
+            if !opt.zero_indexed {
                 if choice.start > 0 {
                     choice.start -= 1;
                 }
