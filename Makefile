@@ -1,26 +1,27 @@
-flamegraph: release-debug
-	perf record --call-graph dwarf,16384 -e cpu-clock -F 997 target/release/choose -i test/long_long_long_long.txt 3:5
-	perf script | stackcollapse-perf.pl | stackcollapse-recursive.pl | c++filt | flamegraph.pl > flamegraphs/working.svg
+OSTYPE := $(shell uname -s)
+ifeq ($(OSTYPE),Linux)
+	TARGET := x86_64-unknown-linux-musl
+else ifeq ($(OSTYPE),Darwin)
+	TARGET := x86_64-apple-darwin
+else
+$(error "Unsupported OSTYPE: $(OSTYPE)")
+endif
 
-flamegraph_commit: release-debug
-	perf record --call-graph dwarf,16384 -e cpu-clock -F 997 target/release/choose -i test/long_long_long_long.txt 3:5
-	perf script | stackcollapse-perf.pl | stackcollapse-recursive.pl | c++filt | flamegraph.pl > flamegraphs/`git log -n 1 --pretty=format:"%h"`.svg
+VERSION := $(word 3,$(shell grep -m1 "^version" Cargo.toml))
+RELEASE := choose-$(VERSION)-$(shell echo $(OSTYPE) | tr "[:upper:]" "[:lower:]")
 
-.PHONY: test
-test:
-	cargo test
-	test/e2e_test.sh
+all: release
 
-bench: release
-	test/bench.sh working
+choose:
+	cargo build --locked --release --target=$(TARGET)
 
-bench_commit: release
-	test/bench.sh `git log -n 1 --pretty=format:"%h"`
+bin:
+	mkdir -p $@
 
-.PHONY: release-debug
-release-debug:
-	RUSTFLAGS=-g cargo build --release
+bin/choose: choose bin
+	cp -f target/$(TARGET)/release/choose $@
 
-.PHONY: release
-release:
-	cargo build --release
+release: bin/choose
+	tar -C bin -Jcvf $(RELEASE).tar.xz choose
+
+.PHONY: all release
