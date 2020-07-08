@@ -1,68 +1,52 @@
-name: Create Releases
+name: Release
 
 on:
   push:
     tags:
-      - v*
+      - v*.*.*-custom
+      - v*.*.*-custom-r*
 
 jobs:
   build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rust-target: x86_64-unknown-linux-musl
+          - os: macos-latest
+            rust-target: x86_64-apple-darwin
+          - os: macos-latest
+            rust-target: aarch64-apple-darwin
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v2
+    - name: Checkout
+      uses: actions/checkout@v2
 
-    - name: Check style
-      run: cargo fmt -- --check
+    - name: Set RUST_TARGET
+      run: echo 'RUST_TARGET=${{ matrix.rust-target }}' >> $GITHUB_ENV
 
-    - name: Run unit tests
-      run: cargo test --verbose
+    - name: Setup Rust
+      uses: hecrj/setup-rust-action@v1
+      with:
+        rust-version: stable
+        targets: ${{ matrix.rust-target }}
 
-    - name: Rust end-to-end test
-      run: test/e2e_test.sh
-
-    - name: Build x86_64-unknown-linux-gnu
-      run: cargo build --verbose --release --target x86_64-unknown-linux-gnu
-
-    - name: Build x86_64-unknown-linux-musl
+    - name: Set environment variables for Apple Silicon
+      if: matrix.rust-target == 'aarch64-apple-darwin'
       run: |
-        rustup target add x86_64-unknown-linux-musl
-        cargo build --verbose --release --target x86_64-unknown-linux-musl
+        export SDKROOT=$(xcrun -sdk macosx11.1 --show-sdk-path)
+        [[ -n $SDKROOT ]] && echo "SDKROOT=$SDKROOT" >> $GITHUB_ENV
+        export MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx11.1 --show-sdk-platform-version)
+        [[ -n $MACOSX_DEPLOYMENT_TARGET ]] && echo "MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET" >> $GITHUB_ENV
 
-    - name: Create GitHub release
-      id: create-release
-      uses: actions/create-release@v1
+    - name: Build
+      run: make release
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: '*.tar.xz'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        body: ''
-        draft: false
-        prerelease: false
-
-    - name: Upload binary to GitHub release
-      id: upload-x86_64-unknown-linux-gnu-release-asset
-      uses: actions/upload-release-asset@v1.0.1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create-release.outputs.upload_url }}
-        asset_path: target/x86_64-unknown-linux-gnu/release/choose
-        asset_name: choose-x86_64-unknown-linux-gnu
-        asset_content_type: application/raw
-
-    - name: Upload musl binary to GitHub release
-      id: upload-x86_64-unknown-linux-musl-release-asset
-      uses: actions/upload-release-asset@v1.0.1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create-release.outputs.upload_url }}
-        asset_path: target/x86_64-unknown-linux-musl/release/choose
-        asset_name: choose-x86_64-unknown-linux-musl
-        asset_content_type: application/raw
-
-    - name: Create crates.io release
-      run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}

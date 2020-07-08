@@ -1,27 +1,27 @@
-.PHONY: release
-release:
-	cargo build --release
+ifeq ($(RUST_TARGET),)
+	TARGET := ""
+	RELEASE_SUFFIX := ""
+else
+	TARGET := $(RUST_TARGET)
+	RELEASE_SUFFIX := "-$(TARGET)"
+	export CARGO_BUILD_TARGET = $(RUST_TARGET)
+endif
 
-.PHONY: release-debug
-release-debug:
-	RUSTFLAGS=-g cargo build --release
+VERSION := $(word 3,$(shell grep -m1 "^version" Cargo.toml))
+RELEASE := choose-$(VERSION)$(RELEASE_SUFFIX)
 
-flamegraph: release-debug
-	perf record --call-graph dwarf,16384 -e cpu-clock -F 997 target/release/choose -i test/long_long_long_long.txt 3:5
-	perf script | stackcollapse-perf.pl | stackcollapse-recursive.pl | c++filt | flamegraph.pl > flamegraphs/working.svg
+all: release
 
-flamegraph_commit: release-debug
-	perf record --call-graph dwarf,16384 -e cpu-clock -F 997 target/release/choose -i test/long_long_long_long.txt 3:5
-	perf script | stackcollapse-perf.pl | stackcollapse-recursive.pl | c++filt | flamegraph.pl > flamegraphs/`git log -n 1 --pretty=format:"%h"`.svg
+choose:
+	cargo build --locked --release
 
-.PHONY: test
-test:
-	cargo test
-	test/e2e_test.sh
+bin:
+	mkdir -p $@
 
-bench: release
-	test/bench.sh working
+bin/choose: choose bin
+	cp -f target/$(TARGET)/release/choose $@
 
-bench_commit: release
-	test/bench.sh `git log -n 1 --pretty=format:"%h"`
+release: bin/choose
+	tar -C bin -Jcvf $(RELEASE).tar.xz choose
 
+.PHONY: all release
